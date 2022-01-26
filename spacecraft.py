@@ -2,9 +2,28 @@
 import numpy as np
 
 
+class OperationMode:
+
+    def __init__(self, name: str, att_targ: np.array, avg_pwr: float, k_prop: tuple, k_derv: tuple, k_int: tuple):
+        self.name = name
+        self.att_targ = att_targ
+        self.avg_pwr = avg_pwr
+        self.k_prop = k_prop
+        self.k_derv = k_derv
+        self.k_int = k_int
+
+
 class Plate:
 
     def __init__(self, area: float, normal: np.array, pos: np.array, absorpt: float, spec: float, diffus: float):
+        """
+        :param area: area of the plate (m^2)
+        :param normal: Unit vector normal to the plate
+        :param pos: Position of the plate in the spacecraft body frame
+        :param absorpt: The plate's photon absorptivity coefficient
+        :param spec: the plate's photon specular deflection coefficient
+        :param diffus: The plate's photon diffusivity coefficient
+        """
         self.area = area  # m^2
         self.normal = normal  # unit vector | SBF
         self.pos = pos  # m | SBF
@@ -16,6 +35,14 @@ class Plate:
 class ReactionWheel:
 
     def __init__(self, jw: float, ws: float, w_dot: float, max_ws: float, min_ws: float, unit: np.array):
+        """
+        :param jw: Moment of inertia of the reaction wheel
+        :param ws: Wheel speed of the reaction wheel upon initiation
+        :param w_dot: Reaction wheel acceleration
+        :param max_ws: Maximum allowed wheel speed
+        :param min_ws: Minimum allowed wheel speed
+        :param unit: Unit vector describing the spin axis of the wheel
+        """
         self.jw = jw  # Wheel Moment of Inertia | # kg*m^2
         self.ws = ws  # Wheel Angular Rate | Rad/s
         self.w_dot = w_dot  # Wheel Angular Acceleration | Rad/s^2
@@ -33,12 +60,24 @@ class ReactionWheel:
 class Thruster:
 
     def __init__(self, unit: np.array, pos_ori: int, torq: float = 35, desat: bool = 0):
+        """
+        :param unit: The unit vector of the torque produced by the thruster
+        :param pos_ori: Describes which direction is the positive orientation of the thruster
+        :param torq: The torque produced by the thruster (Nm)
+        :param desat: Boolean used to determine if a reaction wheel desat is in progress
+        """
         self.torq = torq  # Torque the thruster is capable of producing
         self.unit = unit  # Unit vector of thrust torque
         self.desat = desat  # boolean to indicate desat in progress
         self.pos_ori = pos_ori  # boolean to indicate positive or negative orientation of thruster
 
     def thrust(self, ws: float, ws_max: float, ws_min: float):
+        """
+        :param ws: Wheel speed of the reaction wheel that the thruster will be performing the desat on
+        :param ws_max: Maximum allowed wheel speed of the reaction wheel
+        :param ws_min: Minimum allowed wheel speed of the reaction
+        :return: Returns the torque that the thruster produces (Nm)
+        """
         self.desat += abs(ws) > ws_max  # Checks for a desat trigger
         self.desat *= np.sign(ws) != self.pos_ori  # Checks to see if the thruster is the properly oriented thruster
         self.desat = (abs(ws) > ws_min) * bool(self.desat)  # Checks to see if desat is complete
@@ -47,14 +86,22 @@ class Thruster:
 
 
 class Satellite:
-
     def __init__(self,
-                 pos: np.array = np.array([[0], [0], [0]]),
-                 vel: np.array = np.array([[0], [0], [0]]),
+                 pos: np.array,
+                 vel: np.array,
+                 jc: np.diag,
+                 k_prop: tuple,
+                 k_derv: tuple,
+                 k_int: tuple,
                  att: np.array = np.array([[0], [0], [0], [1]]),
                  des_att: np.array = np.array([[0], [0], [0], [1]]),
                  w: np.array = np.array([[0], [0], [0]]),
+                 mag_res: np.array = np.array([[0], [0], [0]]),
                  minute: int = 0):
+
+        """
+        Initializing the state of the spacecraft
+        """
 
         # Current Time
         self.minute = minute
@@ -74,71 +121,89 @@ class Satellite:
         # Satellite Angular Velocity - ECI Frame
         self.w = w
 
-        # Atmospheric Density
-        self.rho = 3e-18  # kg/m^3
+        """
+        Initializing the satellites properties
+        """
 
         # Principal Moments of Inertia - SBF
-        self.jc = np.diag([77217, 77217, 25000])  # kg*m^2
+        self.jc = jc  # kg*m^2
         self.jc_inv = np.linalg.inv(self.jc)
 
-        # Reaction Wheels' Moments of Inertia - SBF
-        self.rw_1 = ReactionWheel(jw=3,
-                                  ws=0,
-                                  w_dot=0,
-                                  max_ws=700,
-                                  min_ws=1,
-                                  unit=np.array([[1], [0], [0]]))
-
-        self.rw_2 = ReactionWheel(jw=3,
-                                  ws=0,
-                                  w_dot=0,
-                                  max_ws=700,
-                                  min_ws=1,
-                                  unit=np.array([[0], [1], [0]]))
-
-        self.rw_3 = ReactionWheel(jw=3,
-                                  ws=0,
-                                  w_dot=0,
-                                  max_ws=700,
-                                  min_ws=1,
-                                  unit=np.array([[0], [0], [1]]))
-
-        self.jw_inv = np.linalg.inv(np.diag([self.rw_1.jw, self.rw_2.jw, self.rw_3.jw]))
-
-        # Thrusters of the Satellite
-        self.thruster1 = Thruster(unit=np.array([[1], [0], [0]]), pos_ori=1)
-        self.thruster2 = Thruster(unit=np.array([[-1], [0], [0]]), pos_ori=-1)
-        self.thruster3 = Thruster(unit=np.array([[0], [1], [0]]), pos_ori=1)
-        self.thruster4 = Thruster(unit=np.array([[0], [-1], [0]]), pos_ori=-1)
-        self.thruster5 = Thruster(unit=np.array([[0], [0], [1]]), pos_ori=1)
-        self.thruster6 = Thruster(unit=np.array([[0], [0], [-1]]), pos_ori=-1)
-
         # Satellite Magnetic Residual - SBF
-        self.mag_res = np.array([[20], [20], [20]])  # Am^2
+        self.mag_res = mag_res  # Am^2
 
-        # Satellite Plates
-        self.plate_1 = Plate(area=23,
-                             normal=np.array([[1], [0], [0]]),
-                             pos=np.array([[1], [0], [0]]),
-                             absorpt=0.1,
-                             spec=0.8,
-                             diffus=0.1)
+        """
+        Initializing the spacecraft's control algorithm properties
+        """
 
-        self.plate_2 = Plate(area=18,
-                             normal=np.array([[np.cos(np.deg2rad(30))], [np.sin(np.deg2rad(30))], [0]]),
-                             pos=np.array([[0], [0.6], [0]]),
-                             absorpt=0.2,
-                             spec=0.75,
-                             diffus=0.05)
+        # Control Derivatives
+        self.k_prop = k_prop
+        self.k_derv = k_derv
+        self.k_int = k_int
 
-        self.plate_3 = Plate(area=23,
-                             normal=np.array([[np.cos(np.deg2rad(30))], [np.sin(np.deg2rad(30))], [0]]),
-                             pos=np.array([[0], [-0.6], [0]]),
-                             absorpt=0.2,
-                             spec=0.75,
-                             diffus=0.05)
+        """
+        Initializing the components of the satellite
+        These components must be defined by user when 
+        creating an instance of the satellite class
+        """
+
+        # Spacecraft Reaction Wheels
+        self.reaction_wheels = []
+
+        # Spacecraft Magnetorquers
+        self.magnetorquers = []
+
+        # Spacecraft Thrusters
+        self.rcs_thrusters = []
+
+        # Spacecraft Propellant Tanks
+        self.prop_tanks = []
+
+        # Spacecraft Plates
+        self.plates = []
+
+        # Spacecraft Solar Panels
+        self.solar_panels = []
+
+        # Spacecraft Batteries
+        self.batteries = []
+
+        """
+        Initializing spacecraft's modes of operation
+        """
+
+        # Spacecraft modes of operation
+        self.modes = []
+
+    def update_mode(self, name: str):
+        self.des_att = next(mode.des_att for mode in self.modes if mode.name == name)
+        self.k_prop = next(mode.k_prop for mode in self.modes if mode.name == name)
+        self.k_derv = next(mode.k_derv for mode in self.modes if mode.name == name)
+        self.k_int = next(mode.k_int for mode in self.modes if mode.name == name)
+
+    def add_plate(self, area, normal, pos, absorpt, spec, diffus):
+        self.plates.append(Plate(area, normal, pos, absorpt, spec, diffus))
+
+    def add_rcs_thruster(self, unit: np.array, pos_ori: int, torq: float = 35, desat: bool = 0):
+        self.rcs_thrusters.append(Thruster(unit, pos_ori, torq, desat))
+
+    def add_reaction_wheel(self, jw: float, ws: float, w_dot: float, max_ws: float, min_ws: float, unit: np.array):
+        self.reaction_wheels.append(ReactionWheel(jw, ws, w_dot, max_ws, min_ws, unit))
+
+    def add_mode(self, name: str, att_targ: np.array, avg_pwr: float, k_prop: tuple, k_derv: tuple, k_int: tuple):
+        self.modes.append(OperationMode(name, att_targ, avg_pwr, k_prop, k_derv, k_int))
+    """
+    Attitude propagator of the spacecraft
+    """
 
     def propagate(self, pos: np.array, vel: np.array):
+
+        """
+        :param pos: Updates the spacecraft position to the inputed value
+        :param vel: Updates the spacecraft velocity to the inputed value
+        :return: Returns propagated attitude, body angular velocity, reaction wheel velocity,
+                 commanded torques from the PD controller, and the attitude error
+        """
 
         # Updating Position and Velocity
         self.pos = pos
@@ -146,6 +211,7 @@ class Satellite:
 
         # Propagating Attitude and Angular Rates
         def odes(y, t):
+            # Unpacking values
             q_1, q_2, q_3, q_4, w_1, w_2, w_3, rw_1, rw_2, rw_3 = y
 
             # Angular rate terms
@@ -154,8 +220,8 @@ class Satellite:
             # Disturbance torques
             l_grav = grav_grad(self.pos, self.jc, self.att)
             l_mag = mag_torq(self.pos, self.att, self.mag_res)
-            l_aero = aero_torq([self.plate_1, self.plate_2, self.plate_3], self.pos, self.vel, self.att, self.rho)
-            l_srp = srp_torq([self.plate_1, self.plate_2, self.plate_3], self.pos, self.att)
+            l_aero = aero_torq(self.plates, self.pos, self.vel, self.att)
+            l_srp = srp_torq(self.plates, self.pos, self.att)
             l_dist = l_srp+l_grav+l_mag+l_aero
 
             # Control Torque
@@ -258,66 +324,64 @@ class Satellite:
 
         return att_list, w_list, cmd_torqs, rw_list, att_err_list
 
+    """
+    PD Controller
+    """
 
-"""
-PID Controller
-"""
+    def controller(self):
 
+        # Unpacking data elements for convenience
+        # Current quaternion
+        qc1 = self.att[0][0]
+        qc2 = self.att[1][0]
+        qc3 = self.att[2][0]
+        qc4 = self.att[3][0]
 
-def controller(des_att: np.array, curr_att: np.array, curr_w: np.array):
+        # Desired quaternion
+        qd1 = self.des_att[0][0]
+        qd2 = self.des_att[1][0]
+        qd3 = self.des_att[2][0]
+        qd4 = self.des_att[3][0]
 
-    # Unpacking data elements for convenience
-    # Current quaternion
-    qc1 = curr_att[0][0]
-    qc2 = curr_att[1][0]
-    qc3 = curr_att[2][0]
-    qc4 = curr_att[3][0]
+        # Current angular rates
+        p = self.w[0][0]
+        q = self.w[1][0]
+        r = self.w[2][0]
 
-    # Desired quaternion
-    qd1 = des_att[0][0]
-    qd2 = des_att[1][0]
-    qd3 = des_att[2][0]
-    qd4 = des_att[3][0]
+        # Deriving error quaternion
+        qd_err = np.array([[qc4, qc3, -qc2, qc1],
+                           [-qc3, qc4, qc1, qc2],
+                           [qc2, -qc1, qc4, qc3],
+                           [-qc1, -qc2, -qc3, qc4]])
+        qc_err = np.array([[-qd1], [-qd2], [-qd3], [qd4]])
+        q_err = np.matmul(qd_err, qc_err)
 
-    # Current angular rates
-    p = curr_w[0][0]
-    q = curr_w[1][0]
-    r = curr_w[2][0]
+        # Proportional gains
+        kx = 10
+        ky = 10
+        kz = 10
 
-    # Deriving error quaternion
-    qd_err = np.array([[qc4, qc3, -qc2, qc1],
-                       [-qc3, qc4, qc1, qc2],
-                       [qc2, -qc1, qc4, qc3],
-                       [-qc1, -qc2, -qc3, qc4]])
-    qc_err = np.array([[-qd1], [-qd2], [-qd3], [qd4]])
-    q_err = np.matmul(qd_err, qc_err)
+        # Derivative gains
+        kdx = 10000
+        kdy = 10000
+        kdz = 10000
 
-    # Proportional gains
-    kx = 10
-    ky = 10
-    kz = 10
+        # Calculating control torque
+        tx = -2*kx*q_err[0][0]*q_err[3][0] - kdx*p
+        ty = -2*ky*q_err[1][0]*q_err[3][0] - kdy*q
+        tz = -2*kz*q_err[2][0]*q_err[3][0] - kdz*r
 
-    # Derivative gains
-    kdx = 10000
-    kdy = 10000
-    kdz = 10000
+        # Max Torque
+        max_t = 1
+        # if time > 60*90:
+        #     max_t = 10e-2
 
-    # Calculating control torque
-    tx = -2*kx*q_err[0][0]*q_err[3][0] - kdx*p
-    ty = -2*ky*q_err[1][0]*q_err[3][0] - kdy*q
-    tz = -2*kz*q_err[2][0]*q_err[3][0] - kdz*r
+        # Capping control torques at 1 Nm
+        tx = np.sign(tx)*min(max_t, abs(tx))
+        ty = np.sign(ty)*min(max_t, abs(ty))
+        tz = np.sign(tz)*min(max_t, abs(tz))
 
-    # Max Torque
-    max_t = 1
-    # if time > 60*90:
-    #     max_t = 10e-2
+        # Formatting Torque
+        ctrl_t = np.array([[tx], [ty], [tz]])
 
-    # Capping control torques at 1 Nm
-    tx = np.sign(tx)*min(max_t, abs(tx))
-    ty = np.sign(ty)*min(max_t, abs(ty))
-    tz = np.sign(tz)*min(max_t, abs(tz))
-
-    # Formatting Torque
-    ctrl_t = np.array([[tx], [ty], [tz]])
-
-    return ctrl_t
+        return ctrl_t

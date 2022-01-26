@@ -56,6 +56,41 @@ def mag_torq(pos, att, res):
 
 def aero_torq(plates: list, pos: np.array, v_eci: np.array, att: np.array, rho: float):
 
+    # Calculating density of air
+    alt = np.linalg.norm(pos)-6371
+    if 300 > alt > 200:
+        a0 = 1.199282e-9
+        a1 = -1.451051e-6
+        a2 = 6.910474e-4
+        a3 = -0.1736220
+        a4 = -5.321644
+
+    elif 500 > alt > 300:
+        a0 = 1.140564e-10
+        a1 = -2.130756e-7
+        a2 = 1.570762e-4
+        a3 = -0.07029296
+        a4 = -12.89844
+
+    elif 750 > alt > 500:
+        a0 = 8.105631e-12
+        a1 = -2.358417e-9
+        a2 = -2.635110e-6
+        a3 = -0.01562608
+        a4 = -20.02246
+
+    elif 1000 > alt > 750:
+        a0 = -3.701195e-12
+        a1 = -8.608611e-9
+        a2 = 5.118829e-5
+        a3 = -0.06600998
+        a4 = -6.137674
+
+    else:
+        raise ValueError('Altitude value not within 200 < h < 1000 km')
+
+    rho = np.exp(a0*alt**4 + a1*alt**3 + a2*alt**2 + a3*alt + a4)
+
     # Calculation of aerodynamic torque for all plates
     l_aero_sum = np.array([[0], [0], [0]])
     for index, plate in enumerate(plates):
